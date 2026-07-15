@@ -354,7 +354,7 @@ Relational databases optimize structured data access, while graph databases prov
 
 **Fabio Iacus**
 
-Computer Engineering Student
+Software Engineering Student
 
 ---
 
