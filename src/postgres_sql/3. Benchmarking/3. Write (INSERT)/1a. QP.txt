@@ -1,0 +1,6 @@
+"QUERY PLAN"
+"Insert on tracks  (cost=0.00..0.01 rows=0 width=0) (actual time=0.458..0.458 rows=0.00 loops=1)"
+"  Buffers: shared hit=9 dirtied=6"
+"  ->  Result  (cost=0.00..0.01 rows=1 width=189) (actual time=0.005..0.005 rows=1.00 loops=1)"
+"Planning Time: 0.061 ms"
+"Execution Time: 0.534 ms"

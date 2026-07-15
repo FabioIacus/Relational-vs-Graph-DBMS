@@ -1,0 +1,7 @@
+"QUERY PLAN"
+"Index Scan using tracks_pkey on tracks  (cost=0.42..8.44 rows=1 width=44) (actual time=0.072..0.074 rows=1.00 loops=1)"
+"  Index Cond: (track_id = '1gLLVtr9kIjmyoRzENZ11w'::text)"
+"  Index Searches: 1"
+"  Buffers: shared hit=4"
+"Planning Time: 0.204 ms"
+"Execution Time: 0.109 ms"
