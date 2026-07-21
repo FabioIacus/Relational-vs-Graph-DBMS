@@ -1,0 +1,210 @@
+name,description,query,id,parentId,isFolder
+Loading,,,0,,true
+1. Create Constraints,,"// 1. Creating uniqueness constraints (backed by B-Tree indexes) on node identifiers before loading any data. 
+// This is mandatory both to prevent full sequential scans and reduce lookup complexity from O(N) to O(log N) during relationship creation, and to protect node creation itself: since node loading uses CREATE (non-idempotent), re-running this script without constraints in place would silently produce duplicate nodes.
+// With constraints active, any accidental re-run fails explicitly instead of corrupting the dataset.
+CREATE CONSTRAINT track_id_unique FOR (t:Track) REQUIRE t.track_id IS UNIQUE;
+CREATE CONSTRAINT artist_id_unique FOR (a:Artist) REQUIRE a.artist_id IS UNIQUE;
+CREATE CONSTRAINT genre_id_unique FOR (g:Genre) REQUIRE g.genre_id IS UNIQUE;
+
+// Wait for indexes to be fully populated before proceeding.
+CALL db.awaitIndexes();",1,0,false
+2. Load artists,,"// 2. Load artists
+LOAD CSV WITH HEADERS FROM 'file:///artists.csv' AS row
+CREATE (:Artist {
+  artist_id: toInteger(row.artist_id),
+  name: row.artist_name
+});",2,0,false
+3. Load genres,,"// 3. Load genres
+LOAD CSV WITH HEADERS FROM 'file:///genres.csv' AS row
+CREATE (:Genre {
+  genre_id: toInteger(row.genre_id),
+  name: row.genre_name
+});",3,0,false
+4. Load tracks,,"// 4. Load tracks
+LOAD CSV WITH HEADERS FROM 'file:///tracks.csv' AS row
+CREATE (:Track {
+  track_id: row.track_id,
+  name: row.track_name,
+  album: row.album_name,
+  popularity: toInteger(row.popularity)
+});",4,0,false
+5. Load track-artist map,,"// 5. Load track-artist map
+LOAD CSV WITH HEADERS FROM 'file:///track_artist_map.csv' AS row
+MATCH (t:Track {track_id: row.track_id})
+MATCH (a:Artist {artist_id: toInteger(row.artist_id)})
+MERGE (t)-[:PERFORMED_BY]->(a);",5,0,false
+Visualization,,,6,,true
+Basic Exploration,,"// Basic Exploration: 
+// Retrieving a random sample of 20 isolated nodes (Tracks, Artists, or Genres) to visually verify the loaded entities before exploring their relationships.
+MATCH (n) 
+RETURN n 
+LIMIT 20;",7,6,false
+Topology Exploration,,"// Topology Exploration:
+// Visualizing the immediate neighborhood of Track nodes.
+// This undirected query retrieves a sample of tracks and all their direct connections, regardless of the relationship type.
+MATCH (t:Track)-[r]-(n)
+RETURN t, r, n
+LIMIT 25;",8,6,false
+6. Load track-genre map,,"// 6. Load track-genre map
+LOAD CSV WITH HEADERS FROM 'file:///track_genre_map.csv' AS row
+MATCH (t:Track {track_id: row.track_id})
+MATCH (g:Genre {genre_id: toInteger(row.genre_id)})
+MERGE (t)-[:BELONGS_TO_GENRE]->(g);",9,0,false
+Hub Pattern,,"// Hub Pattern:
+// Track as central node connecting Artist (PERFORMED_BY)
+// and Genre (BELONGS_TO_GENRE). Sample of 30 triads for exploration.
+MATCH (t:Track)-[r1:PERFORMED_BY]->(a:Artist),
+      (t)-[r2:BELONGS_TO_GENRE]->(g:Genre)
+RETURN t, a, g, r1, r2
+LIMIT 30;",10,6,false
+Random Sampling,,"// Random Sampling:
+// Retrieving a randomized subset of (Track, Artist, Genre) triads.
+// Useful for live demonstrations to ensure dynamic and diverse visual results.
+// Note: ORDER BY rand() scans and sorts the full result set before applying LIMIT.
+// This is acceptable for small/demo datasets, but costly at scale.
+MATCH (t:Track)-[r1:PERFORMED_BY]->(a:Artist),
+ (t)-[r2:BELONGS_TO_GENRE]->(g:Genre)
+RETURN t, a, g, r1, r2
+ORDER BY rand()
+LIMIT 30;",11,6,false
+Genre Multiplicity Distribution,,"// Genre Multiplicity Distribution:
+// For each Track, counts how many distinct Genre nodes it is connected to, then aggregates tracks by that count.
+// Confirms that the graph-based model correctly captures tracks belonging to multiple genres simultaneously, which a single scalar ""genre"" property could not represent.
+MATCH (t:Track)-[:BELONGS_TO_GENRE]->(g)
+WITH t, count(g) AS num_genres
+RETURN count(t) AS num_tracks, num_genres
+ORDER BY num_genres",12,6,false
+Benchmarking,,,13,,true
+1. Sanity Checks,,,14,13,true
+Sanity Check on Track Name,,"// Sanity check: verify whether 'Shape of You' corresponds to a single Track node or multiple entries (e.g., remixes, live versions, duplicates). This determines whether the recommendation query below can safely start from track name alone, or whether it should instead filter by track_id to avoid ambiguous/aggregated results across multiple distinct tracks sharing the same name.
+MATCH (t:Track {name: 'Shape of You'})
+RETURN t.track_id, t.album, t.popularity;",15,14,false
+Sanity Check on Artist Name,,"// Sanity check: verify whether 'Ed Sheeran' corresponds to a single Artist node or multiple entries. 
+// This determines whether the multi-hop and degrees-of-separation queries below can safely start from artist name alone, avoiding ambiguous/duplicated traversal results.
+MATCH (a:Artist {name: 'Ed Sheeran'})
+RETURN a.artist_id, count(*) AS occurrences;",16,14,false
+2. Read (SELECT),,,17,13,true
+Baseline Point Lookup,,"// Baseline Point Lookup:
+// Retrieves a single Track by its primary identifier.
+// No relationship traversal is involved — this establishes a baseline cost for both systems where neither's structural advantage (B-Tree indexing vs index-free adjacency) comes into play, since no relationships are traversed.
+PROFILE
+MATCH (t:Track {track_id: '1gLLVtr9kIjmyoRzENZ11w'})
+RETURN t.name, t.popularity, t.album;",18,17,false
+Content-Based Recommendation (Shared Genres),,"// Content-Based Recommendation (Shared Genres)
+// Traverses the graph from a target Track ('Shape of You') to find other tracks sharing the highest number of Genre nodes, ranked by shared-genre count.
+// Used as a benchmark query to compare graph traversal cost against the equivalent SQL formulation (multi-way join on the track_genre bridge table).
+PROFILE
+MATCH (t1:Track {name: 'Shape of You'})-[:BELONGS_TO_GENRE]->(g:Genre)<-[:BELONGS_TO_GENRE]-(t2:Track)
+WHERE t1 <> t2
+RETURN t2.name AS Recommendation, count(g) AS Shared_Genres
+ORDER BY Shared_Genres DESC
+LIMIT 10;",19,17,false
+Artist Prolificacy,,"// Artist Prolificacy:
+// Ranks artists by number of performed tracks, using degree-based aggregation (counting incoming PERFORMED_BY relationships per Artist node).
+// Compares per-node aggregation cost against the equivalent SQL GROUP BY + COUNT on the track_artist bridge table.
+PROFILE
+MATCH (a:Artist)<-[:PERFORMED_BY]-(t:Track)
+RETURN a.name AS Artist, count(t) AS Num_Tracks
+ORDER BY Num_Tracks DESC
+LIMIT 10;",20,17,false
+Global Aggregation and Filtering,,"// Global Aggregation and Filtering
+// Calculates the average popularity of genres containing more than 50 tracks.
+// Designed to test the DBMS's ability to handle global groupings and aggregations rather than targeted traversals. 
+// Since this query requires scanning all Genre-Track relationships regardless of starting point, the graph's index-free adjacency (which speeds up pointer-chasing from a known node) offers little advantage here compared to deep, targeted traversals.
+PROFILE
+MATCH (g:Genre)<-[:BELONGS_TO_GENRE]-(t:Track)
+WITH g, avg(t.popularity) AS average_popularity, count(t) AS total_tracks
+WHERE total_tracks > 50
+RETURN g.name, round(average_popularity, 2) AS avg_pop, total_tracks
+ORDER BY avg_pop DESC
+LIMIT 5;",21,17,false
+Deep Multi-Hop Path Analysis (High Join Intensity),,"// Deep Multi-Hop Path Analysis (High Join Intensity)
+// Performs a 5-hop structural traversal to find artists connected to a target artist ('Ed Sheeran') through shared genres across their tracks.
+// Designed as a stress test for relational multi-way joins (which this pattern would require translating into several nested joins on bridge tables), and to observe whether Neo4j's traversal cost scales differently from Postgres's join cost as pattern depth increases.
+PROFILE
+MATCH (a1:Artist {name: 'Ed Sheeran'})<-[:PERFORMED_BY]-(t1:Track)-[:BELONGS_TO_GENRE]->(g:Genre)<-[:BELONGS_TO_GENRE]-(t2:Track)-[:PERFORMED_BY]->(a2:Artist)
+WHERE a1 <> a2
+RETURN a2.name AS Similar_Artist, count(DISTINCT t2) AS Connected_Tracks
+ORDER BY Connected_Tracks DESC
+LIMIT 10;",22,17,false
+Degrees of Separation,,"// Degrees of Separation:
+// Finds artists reachable from a target artist ('Ed Sheeran') within a variable number of hops (2 to 6), traversing both PERFORMED_BY and BELONGS_TO_GENRE relationships. 
+// Demonstrates Cypher's native variable-length path syntax, which in SQL would require a recursive CTE to express the same traversal. 
+PROFILE
+MATCH (a1:Artist {name: 'Ed Sheeran'})-[:PERFORMED_BY|BELONGS_TO_GENRE*2..6]-(a2:Artist)
+WHERE a1 <> a2
+RETURN DISTINCT a2.name AS Reachable_Artist
+LIMIT 20;",23,17,false
+3. Write (INSERT),,,24,13,true
+Write Benchmark,,"// Write Benchmark:
+// Creates a new Track node and connects it to an existing Artist and Genre, simulating a typical write operation (insert + relationship creation).
+// Used to compare write cost against the equivalent SQL INSERT statements across the tracks, track_artist_map, and track_genre_map tables.
+// NOTE: this mutates the dataset — run this last, and use the cleanup query below afterward to restore the database to its original state before re-running any read benchmarks.
+PROFILE
+MATCH (a:Artist {name: 'Ed Sheeran'})
+MATCH (g:Genre {name: 'pop'})
+CREATE (t:Track {
+  track_id: 'benchmark_test_001',
+  name: 'Benchmark Test Track',
+  album: 'Benchmark Album',
+  popularity: 50
+})
+CREATE (t)-[:PERFORMED_BY]->(a)
+CREATE (t)-[:BELONGS_TO_GENRE]->(g);",25,24,false
+Visual Check,,"// Visual check: retrieves the newly created benchmark Track along with its connected relationships and neighboring nodes (Artist, Genre).
+MATCH (t:Track {track_id: 'benchmark_test_001'})-[r]-(connected)
+RETURN t, r, connected;",26,24,false
+Write Benchmark Cleanup,,"// Write Benchmark Cleanup:
+// Removes the test node created above, restoring the database to its original state before continuing with further read benchmarks.
+MATCH (t:Track {track_id: 'benchmark_test_001'})
+DETACH DELETE t;",27,24,false
+7. Create Indexes,,"// 7. Creating indexes on Track.name and Artist.name to support name-based lookups used throughout the benchmark queries (e.g., baseline point lookup, content-based recommendation, multi-hop traversal). 
+// Without these, matching by name would require a full label scan instead of an index seek, unfairly biasing the benchmark against Neo4j.
+CREATE INDEX track_name_index FOR (t:Track) ON (t.name);
+CREATE INDEX artist_name_index FOR (a:Artist) ON (a.name);
+CALL db.awaitIndexes();",28,0,false
+4. Update (UPDATE),,,29,13,true
+Update Benchmark,,"// Update Benchmark:
+// Bulk-updates the popularity of all tracks belonging to a specific genre ('pop'), simulating a typical update operation across many related nodes.
+// Compares update cost against the equivalent SQL UPDATE ... WHERE statement joining through the track_genre_map bridge table.
+// NOTE: this mutates existing data — run the revert query below afterward to restore original values before continuing with other read benchmarks.
+PROFILE
+MATCH (t:Track)-[:BELONGS_TO_GENRE]->(g:Genre {name: 'pop'})
+SET t.popularity = t.popularity + 1
+RETURN count(t) AS Updated_Tracks;",30,29,false
+Update Benchmark Verification,,"// Update Benchmark Verification:
+// Spot-checks a few updated tracks to visually confirm the SET operation was applied correctly before reverting.
+MATCH (t:Track)-[:BELONGS_TO_GENRE]->(g:Genre {name: 'pop'})
+RETURN t.name, t.popularity
+LIMIT 5;",31,29,false
+Update Benchmark Revert,,"// Update Benchmark Revert:
+// Restores the original popularity values, undoing the update above, to keep the dataset consistent with the source CSVs for further benchmarks.
+PROFILE
+MATCH (t:Track)-[:BELONGS_TO_GENRE]->(g:Genre {name: 'pop'})
+SET t.popularity = t.popularity - 1
+RETURN count(t) AS Reverted_Tracks;",32,29,false
+5. Delete (DELETE),,,33,13,true
+Delete Benchmark Setup,,"// Delete Benchmark Setup:
+// Creates a temporary Track node with relationships to Artist and Genre, used exclusively as the target for the delete benchmark below.
+// This mirrors the Write Benchmark setup, but its sole purpose is to be deleted.
+MATCH (a:Artist {name: 'Ed Sheeran'})
+MATCH (g:Genre {name: 'pop'})
+CREATE (t:Track {
+  track_id: 'benchmark_test_002',
+  name: 'Delete Benchmark Track',
+  album: 'Benchmark Album',
+  popularity: 50
+})
+CREATE (t)-[:PERFORMED_BY]->(a)
+CREATE (t)-[:BELONGS_TO_GENRE]->(g);",34,33,false
+Delete Benchmark,,"// Delete Benchmark:
+// Deletes the temporary Track node created above, along with its relationships (DETACH DELETE). 
+// Compares delete cost against the equivalent SQL DELETE statements across the tracks, track_artist_map, and track_genre_map tables, where Postgres must also evaluate foreign key constraints on deletion.
+PROFILE
+MATCH (t:Track {track_id: 'benchmark_test_002'})
+DETACH DELETE t;",35,33,false
+Delete Benchmark Verification,,"// Delete Benchmark Verification:
+// Confirms the node was successfully removed — should return zero results.
+MATCH (t:Track {track_id: 'benchmark_test_002'})
+RETURN t;",36,33,false
