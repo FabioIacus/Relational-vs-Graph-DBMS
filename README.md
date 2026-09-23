@@ -5,7 +5,7 @@
 
 ---
 
-## 📌 Executive Summary
+## Executive Summary
 This project provides a comprehensive, empirical performance comparison between a traditional Relational Database Management System (**PostgreSQL**) and a native Graph Database Management System (**Neo4j**). 
 
 Using the real-world **Spotify Tracks Dataset**, both technologies were evaluated across the entire data lifecycle:
