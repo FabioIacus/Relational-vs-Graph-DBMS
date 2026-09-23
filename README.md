@@ -1,9 +1,24 @@
-# Relational vs Graph DBMS
- 
-A comparative performance analysis between **PostgreSQL** (relational) and **Neo4j** (graph) using the **Spotify Tracks Dataset**, evaluating how the data model affects query execution, data manipulation, and scalability.
- 
+# Relational vs Graph DBMS: A comparative performance analysis
+> **Course:** Data Management  
+> **Technologies:** PostgreSQL (RDBMS) vs Neo4j (GDBMS)  
+> **Dataset:** Spotify Tracks Dataset (Kaggle)
+
 ---
- 
+
+## 📌 Executive Summary
+This project provides a comprehensive, empirical performance comparison between a traditional Relational Database Management System (**PostgreSQL**) and a native Graph Database Management System (**Neo4j**). 
+
+Using the real-world **Spotify Tracks Dataset**, both technologies were evaluated across the entire data lifecycle:
+1. **Data Ingestion & Normalization (ETL)**
+2. **Schema & Integrity Constraints Enforcement**
+3. **Exploratory & Topological Queries**
+4. **Read Benchmarks** (Point Lookups, Content-Based Filtering, Multi-Hop Traversals, Recursive Paths)
+5. **Write, Update, and Delete Benchmarks**
+
+The core goal is to assess the architectural trade-offs between relational **B-Tree index scans** (subject to *Join Pain* on dense connections) and native **Index-Free Adjacency** (pointer chasing directly in RAM).
+
+---
+
 ## Data Models
  
 **PostgreSQL**: normalized schema with `tracks`, `artists`, `genres`, and bridge tables (`track_artist_map`, `track_genre_map`) for many-to-many relationships.
