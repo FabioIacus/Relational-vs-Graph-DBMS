@@ -57,7 +57,18 @@ Comparison across 4 operation types: **read, insert, update, delete**, with exec
 Read queries include: point lookup, content-based recommendation, artist prolificacy, global aggregation, multi-hop analysis, and "degrees of separation".
  
 ---
- 
+
+## How to Reproduce
+1. **Preprocessing:** Run `python src/preprocess.py` to generate the clean CSV files inside `data/`.
+2. **PostgreSQL Setup:** 
+   * (Optional) Run `src/postgres_sql/0. Reset/Full database reset.sql` for a clean state.
+   * Execute scripts sequentially inside `src/postgres_sql/1. Loading/` (`1. Create Schema.sql` through `7. Create Indexes.sql`).
+   * (Optional) Run scripts in `src/postgres_sql/2. Visualization/` to explore data topology and hub patterns.
+3. **Neo4j Setup:** Execute uniqueness constraints in Cypher, followed by `LOAD CSV` commands from `src/neo4j_query_saved_cypher.csv`.
+4. **Benchmarking:** Execute the queries inside `src/postgres_sql/3. Benchmarking/` using `EXPLAIN ANALYZE` in PostgreSQL, and the corresponding Cypher queries with `PROFILE` in Neo4j under warm-cache conditions.
+
+---
+
 ## Technologies
  
 PostgreSQL, Neo4j, SQL, Cypher, Python
